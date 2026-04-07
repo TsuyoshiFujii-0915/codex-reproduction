@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 import argparse
 import json
 import os
 import os.path
+import sys
 import urllib.request
 
 from agent_cli.config import AgentConfig, default_config_text, load_config
 from agent_cli.renderer import Renderer
 from agent_cli.session import SessionController
 
+_COMMAND_NAMES: frozenset[str] = frozenset({"chat", "resume", "doctor", "config"})
 
-def main() -> int:
+
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
-    parser = _build_parser()
-    args = parser.parse_args()
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
     cwd: Path = Path(args.cwd).resolve()
     config_path: Path = Path(args.config).expanduser().resolve()
     if args.command == "config" and args.config_command == "init":
@@ -68,9 +71,21 @@ def main() -> int:
     return 0
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent")
-    parser.add_argument("prompt", nargs="?")
+def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    options_parser: argparse.ArgumentParser = _build_options_parser()
+    _, remainder = options_parser.parse_known_args(list(argv))
+    if remainder and remainder[0] in _COMMAND_NAMES:
+        return _build_command_parser().parse_args(list(argv))
+    return _build_prompt_parser().parse_args(list(argv))
+
+
+def _build_common_parser(add_help: bool) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="agent", add_help=add_help)
+    _add_common_arguments(parser=parser)
+    return parser
+
+
+def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config", default="~/.agent/config.toml")
     parser.add_argument("--base-url")
     parser.add_argument("--model")
@@ -84,6 +99,21 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-turns", type=int)
     parser.add_argument("--compact-trigger-tokens", type=int)
     parser.add_argument("--debug", action="store_true")
+
+
+def _build_prompt_parser() -> argparse.ArgumentParser:
+    parser = _build_common_parser(add_help=True)
+    parser.add_argument("prompt", nargs="?")
+    parser.set_defaults(command=None)
+    return parser
+
+
+def _build_options_parser() -> argparse.ArgumentParser:
+    return _build_common_parser(add_help=False)
+
+
+def _build_command_parser() -> argparse.ArgumentParser:
+    parser = _build_common_parser(add_help=True)
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("chat")
     resume_parser = subparsers.add_parser("resume")
@@ -91,7 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument("prompt", nargs="?")
     subparsers.add_parser("doctor")
     config_parser = subparsers.add_parser("config")
-    config_subparsers = config_parser.add_subparsers(dest="config_command")
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_subparsers.add_parser("init")
     return parser
 
