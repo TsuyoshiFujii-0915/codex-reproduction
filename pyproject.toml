@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-cli"
+version = "0.1.0"
+description = "Minimal Codex-style coding agent CLI in Python"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+agent = "agent_cli.cli:main"
+
+[dependency-groups]
+dev = []
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.setuptools.packages.find]
+include = ["agent_cli*"]
