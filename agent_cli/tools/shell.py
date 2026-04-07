@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import shlex
 import subprocess
 
 from agent_cli.approval import ensure_approved
 from agent_cli.policy import ensure_within_workspace
 from agent_cli.tools.base import ToolExecutionContext, ToolResult, truncate_tool_text
+
+
+@dataclass(frozen=True)
+class ShellExecutionPlan:
+    """Normalized shell execution plan."""
+
+    argv: list[str] | None
+    script_lines: list[str] | None
 
 
 class ShellTool:
@@ -35,20 +45,30 @@ class ShellTool:
         }
 
     def execute(self, arguments: dict[str, Any], context: ToolExecutionContext) -> ToolResult:
-        command: list[str] = _require_string_list(value=arguments.get("command"), field_name="command")
+        raw_command: list[str] = _require_string_list(value=arguments.get("command"), field_name="command")
+        plan: ShellExecutionPlan = _build_execution_plan(command=raw_command)
         workdir_value: Any = arguments.get("workdir", ".")
         timeout_value: Any = arguments.get("timeout_ms", 30_000)
         if not isinstance(workdir_value, str):
             raise ValueError("workdir must be a string")
         if not isinstance(timeout_value, int):
             raise ValueError("timeout_ms must be an integer")
-        self._validate_command(command=command, context=context)
+        self._validate_plan(plan=plan, context=context)
         workdir: Path = ensure_within_workspace(
             workspace_root=context.workspace_root,
             target_path=context.workspace_root / workdir_value,
         )
+        execution_command: list[str]
+        display_command: list[str]
+        if plan.argv is not None:
+            execution_command = plan.argv
+            display_command = plan.argv
+        else:
+            script_text: str = "\n".join(plan.script_lines or [])
+            execution_command = [context.agent_settings.shell, "-lc", script_text]
+            display_command = execution_command
         completed = subprocess.run(
-            command,
+            execution_command,
             cwd=workdir,
             capture_output=True,
             text=True,
@@ -63,8 +83,17 @@ class ShellTool:
             ok=completed.returncode == 0,
             output=truncated_output,
             exit_code=completed.returncode,
-            metadata={"workdir": str(workdir), "command": context.command_policy.format_command(command)},
+            metadata={"workdir": str(workdir), "command": context.command_policy.format_command(display_command)},
         )
+
+    def _validate_plan(self, plan: ShellExecutionPlan, context: ToolExecutionContext) -> None:
+        commands_to_validate: list[list[str]] = (
+            [plan.argv]
+            if plan.argv is not None
+            else [_tokenize_command_line(command_line=line) for line in (plan.script_lines or [])]
+        )
+        for command in commands_to_validate:
+            self._validate_command(command=command, context=context)
 
     def _validate_command(self, command: list[str], context: ToolExecutionContext) -> None:
         if context.agent_settings.sandbox_mode == "read-only":
@@ -127,3 +156,83 @@ def _require_string_list(value: Any, field_name: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f"{field_name} must be a list of strings")
     return value
+
+
+def _build_execution_plan(command: list[str]) -> ShellExecutionPlan:
+    """Normalize tool command arguments into an execution plan.
+
+    Args:
+        command: Raw command argument list supplied by the model.
+
+    Returns:
+        A normalized shell execution plan.
+
+    Raises:
+        ValueError: If the command cannot be normalized into a non-empty execution plan.
+    """
+    if command == []:
+        raise ValueError("command must not be empty")
+    if _looks_like_command_line_sequence(command=command):
+        return ShellExecutionPlan(argv=None, script_lines=command)
+    if len(command) != 1:
+        return ShellExecutionPlan(argv=command, script_lines=None)
+    normalized: list[str] = _tokenize_command_line(command_line=command[0])
+    if normalized == []:
+        raise ValueError("command must not be empty")
+    if _contains_shell_operators(command_line=command[0]):
+        return ShellExecutionPlan(argv=None, script_lines=command)
+    return ShellExecutionPlan(argv=normalized, script_lines=None)
+
+
+def _looks_like_command_line_sequence(command: list[str]) -> bool:
+    """Determine whether the raw command list represents shell command lines.
+
+    Args:
+        command: Raw command argument list supplied by the model.
+
+    Returns:
+        ``True`` when each item appears to be a full command line rather than argv.
+    """
+    if len(command) <= 1:
+        return False
+    return all(_looks_like_command_line(command_line=item) for item in command)
+
+
+def _looks_like_command_line(command_line: str) -> bool:
+    """Determine whether a string resembles a full shell command line.
+
+    Args:
+        command_line: Raw command line text.
+
+    Returns:
+        ``True`` when the string should be treated as shell command text.
+    """
+    if _contains_shell_operators(command_line=command_line):
+        return True
+    tokens: list[str] = _tokenize_command_line(command_line=command_line)
+    return len(tokens) > 1
+
+
+def _contains_shell_operators(command_line: str) -> bool:
+    """Return whether a command line contains shell operators.
+
+    Args:
+        command_line: Raw command line text.
+
+    Returns:
+        ``True`` when shell syntax requires execution through the configured shell.
+    """
+    shell_operators: tuple[str, ...] = ("|", "&&", "||", ";", ">", "<", "*", "?", "$", "\n")
+    return any(operator in command_line for operator in shell_operators)
+
+
+def _tokenize_command_line(command_line: str) -> list[str]:
+    """Tokenize one shell-like command line.
+
+    Args:
+        command_line: Raw command line text.
+
+    Returns:
+        Parsed argv tokens.
+    """
+    return shlex.split(command_line, posix=True)

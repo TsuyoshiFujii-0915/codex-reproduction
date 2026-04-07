@@ -178,6 +178,9 @@ def _run_chat(config: AgentConfig, cwd: Path) -> int:
             prompt: str = input("> ").strip()
         except EOFError:
             return 0
+        except KeyboardInterrupt:
+            print()
+            return 0
         if prompt in {"exit", "quit"}:
             return 0
         controller.run_task(user_input=prompt)

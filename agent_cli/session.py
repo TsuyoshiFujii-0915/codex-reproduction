@@ -69,18 +69,6 @@ class SessionController:
     renderer: Renderer | None = None
 
     def __post_init__(self) -> None:
-        if self.model_client is None:
-            self.model_client = ResponsesModelClient(
-                base_url=self.config.model.base_url,
-                api_key=self.config.model.api_key or os.environ.get(self.config.model.api_key_env, ""),
-                timeout_seconds=self.config.model.timeout_seconds,
-            )
-        if self.renderer is None:
-            self.renderer = Renderer(
-                show_plan=False,
-                show_tool_logs=False,
-                show_diff_summary=self.config.ui.show_diff_summary,
-            )
         if self.session_id is None:
             self._paths = prepare_session_paths(
                 workspace_root=self.config.agent.workspace_root,
@@ -91,6 +79,21 @@ class SessionController:
                 workspace_root=self.config.agent.workspace_root,
                 project_memory_dir=self.config.files.project_memory_dir,
                 session_id=self.session_id,
+            )
+        if self.model_client is None:
+            self.model_client = ResponsesModelClient(
+                base_url=self.config.model.base_url,
+                api_key=self.config.model.api_key or os.environ.get(self.config.model.api_key_env, ""),
+                timeout_seconds=self.config.model.timeout_seconds,
+                debug_output_path=(self._paths.memory_root / "debug" / "latest-stream.log")
+                if self.config.debug
+                else None,
+            )
+        if self.renderer is None:
+            self.renderer = Renderer(
+                show_plan=False,
+                show_tool_logs=False,
+                show_diff_summary=self.config.ui.show_diff_summary,
             )
         self._history_items: list[dict[str, Any]] = []
         self._tools: dict[str, ToolProtocol] = {
@@ -147,6 +150,7 @@ class SessionController:
         append_transcript_event(self._paths.transcript_path, "request", {"user_input": user_input})
         for _turn_index in range(self.config.agent.max_turns):
             request: dict[str, Any] = build_request(
+                base_url=self.config.model.base_url,
                 model_name=self.config.model.model,
                 stream=self.config.model.stream,
                 store=self.config.model.store,
@@ -232,7 +236,27 @@ class SessionController:
         )
         tool: ToolProtocol = self._tools[tool_name]
         self.renderer.show_tool_log(f"{tool_name} {arguments}")
-        result: ToolResult = tool.execute(arguments=arguments, context=context)
+        try:
+            result: ToolResult = tool.execute(arguments=arguments, context=context)
+        except Exception as exc:  # noqa: BLE001
+            error_type: str = type(exc).__name__
+            error_output: str = "\n".join(
+                [
+                    "Tool execution failed.",
+                    f"tool={tool_name}",
+                    f"error_type={error_type}",
+                    f"message={exc}",
+                ]
+            )
+            self.renderer.show_tool_log(
+                f"tool_error {tool_name} {error_type}: {exc}"
+            )
+            return ToolResult(
+                ok=False,
+                output=error_output,
+                exit_code=None,
+                metadata={"tool": tool_name, "error_type": error_type},
+            )
         path_value: Any = result.metadata.get("path")
         if isinstance(path_value, str):
             self._touched_files.add(path_value)

@@ -38,7 +38,7 @@ class ConfigLoadingTest(unittest.TestCase):
             self.assertEqual(config.model.model, "openai/gpt-oss-20b")
             self.assertEqual(config.agent.approval_mode, "always")
             self.assertEqual(config.agent.workspace_root, (Path(tmp_dir) / "workspace").resolve())
-            self.assertTrue(config.model.stream)
+            self.assertFalse(config.model.stream)
             self.assertFalse(config.model.store)
 
     def test_load_config_requires_model_name(self) -> None:
@@ -52,4 +52,3 @@ class ConfigLoadingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

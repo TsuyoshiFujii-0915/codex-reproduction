@@ -28,7 +28,10 @@ Set at least:
 base_url = "http://localhost:1234/v1"
 model = "openai/gpt-oss-20b"
 api_key_env = "OPENAI_API_KEY"
+stream = false
 ```
+
+`stream` defaults to `false`. Enable streaming explicitly with `--stream` when needed.
 
 ## Run
 

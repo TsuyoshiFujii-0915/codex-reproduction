@@ -119,7 +119,7 @@ def default_config_text() -> str:
             'model = ""',
             'api_key_env = "OPENAI_API_KEY"',
             "timeout_seconds = 120",
-            "stream = true",
+            "stream = false",
             "store = false",
             "",
             "[agent]",
@@ -149,7 +149,7 @@ def _build_default_data() -> dict[str, Any]:
             "model": "",
             "api_key_env": "OPENAI_API_KEY",
             "timeout_seconds": 120,
-            "stream": True,
+            "stream": False,
             "store": False,
         },
         "agent": {
