@@ -15,7 +15,7 @@ from agent_cli.config import AgentConfig, default_config_text, load_config
 from agent_cli.renderer import Renderer
 from agent_cli.session import SessionController
 
-_COMMAND_NAMES: frozenset[str] = frozenset({"chat", "resume", "doctor", "config"})
+_COMMAND_NAMES: frozenset[str] = frozenset({"chat", "resume", "doctor", "config", "tui"})
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -39,6 +39,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.command == "doctor":
         return _run_doctor(config=config)
+    if args.command == "tui":
+        return _run_tui(config=config, cwd=cwd)
     if args.command == "resume":
         renderer.show_session_header(
             base_url=config.model.base_url,
@@ -120,6 +122,7 @@ def _build_command_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument("session_id", nargs="?")
     resume_parser.add_argument("prompt", nargs="?")
     subparsers.add_parser("doctor")
+    subparsers.add_parser("tui")
     config_parser = subparsers.add_parser("config")
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_subparsers.add_parser("init")
@@ -184,6 +187,26 @@ def _run_chat(config: AgentConfig, cwd: Path) -> int:
         if prompt in {"exit", "quit"}:
             return 0
         controller.run_task(user_input=prompt)
+
+
+def _run_tui(config: AgentConfig, cwd: Path) -> int:
+    from agent_cli.tui_app import AgentTuiApp, SessionHeaderData
+
+    controller = SessionController(config=config, cwd=cwd)
+    app = AgentTuiApp(
+        controller=controller,
+        session_header=SessionHeaderData(
+            base_url=config.model.base_url,
+            model=config.model.model,
+            cwd=str(cwd),
+            sandbox_mode=config.agent.sandbox_mode,
+            approval_mode=config.agent.approval_mode,
+        ),
+        show_plan=config.ui.show_plan,
+        show_tool_logs=config.ui.show_tool_logs,
+    )
+    app.run()
+    return 0
 
 
 def _run_doctor(config: AgentConfig) -> int:

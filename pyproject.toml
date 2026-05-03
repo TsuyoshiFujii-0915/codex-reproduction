@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Minimal Codex-style coding agent CLI in Python"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["textual==6.6.0"]
 
 [project.scripts]
 agent = "agent_cli.cli:main"

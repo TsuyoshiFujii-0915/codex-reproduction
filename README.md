@@ -47,6 +47,12 @@ Interactive chat:
 uv run agent chat
 ```
 
+Interactive TUI:
+
+```bash
+uv run agent tui
+```
+
 Health check:
 
 ```bash

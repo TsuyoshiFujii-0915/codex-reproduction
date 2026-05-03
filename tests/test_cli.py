@@ -64,6 +64,11 @@ class CliTest(unittest.TestCase):
         self.assertEqual(args.command, "config")
         self.assertEqual(args.config_command, "init")
 
+    def test_parse_args_accepts_tui_command(self) -> None:
+        args = _parse_args(["tui"])
+
+        self.assertEqual(args.command, "tui")
+
     def test_parse_args_treats_non_command_as_prompt(self) -> None:
         args = _parse_args(["README を要約して"])
 
